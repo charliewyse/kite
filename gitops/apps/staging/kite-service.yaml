@@ -15,7 +15,7 @@ spec:
   project: kite
 
   source:
-    repoURL: git://192.168.49.1/kite-bare.git
+    repoURL: https://github.com/charliewyse/kite
     targetRevision: main
     path: helm/kite-service
     helm:
@@ -23,7 +23,6 @@ spec:
       valueFiles:
         - values.yaml
         - values-staging.yaml
-        - values-local.yaml
 
   destination:
     server: https://kubernetes.default.svc

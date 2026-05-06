@@ -15,7 +15,7 @@ spec:
   project: kite
 
   source:
-    repoURL: https://github.com/ORG/kite  # replace ORG
+    repoURL: https://github.com/charliewyse/kite
     targetRevision: main
     path: helm/kite-service
     helm:

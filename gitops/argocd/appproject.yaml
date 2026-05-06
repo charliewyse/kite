@@ -12,7 +12,7 @@ spec:
 
   # Only allow deployments sourced from this repository
   sourceRepos:
-    - https://github.com/ORG/kite  # replace ORG with your GitHub org/user
+    - https://github.com/charliewyse/kite
 
   # Only allow deployments into the three kite namespaces
   destinations:
