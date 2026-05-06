@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kite-service-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: kite-service
+    environment: staging
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: devops-alerts
+    notifications.argoproj.io/subscribe.on-deployed.slack: releases
+spec:
+  project: kite
+
+  source:
+    repoURL: git://192.168.49.1/kite-bare.git
+    targetRevision: main
+    path: helm/kite-service
+    helm:
+      releaseName: kite-service
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+        - values-local.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kite-staging
+
+  syncPolicy:
+    # No automated sync — a human triggers staging deploys via the ArgoCD UI
+    # or by running: argocd app sync kite-service-staging
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true  # new resources come up before old ones are pruned
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/currentMetrics
+        - /spec/metrics

@@ -1,0 +1,33 @@
+image:
+  repository: "AWS_ACCOUNT_ID.dkr.ecr.AWS_REGION.amazonaws.com/prod/kite-service"
+  tag: ""  # set manually via CD workflow promote job before syncing
+
+replicaCount: 3
+
+ingress:
+  enabled: true
+  hosts:
+    - host: kite.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack

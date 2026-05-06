@@ -1,0 +1,40 @@
+# Root bootstrap Application — apply this once to seed all child Applications.
+#
+#   kubectl apply -n argocd -f gitops/argocd/appproject.yaml
+#   kubectl apply -n argocd -f gitops/argocd/app-of-apps.yaml
+#
+# ArgoCD will then discover and manage gitops/apps/{dev,staging,prod}/*.yaml
+# as child Applications automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kite-app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: kite
+
+  source:
+    repoURL: https://github.com/ORG/kite  # replace ORG
+    targetRevision: main
+    path: gitops/apps
+    directory:
+      recurse: true  # picks up dev/, staging/, prod/ subdirectories
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m

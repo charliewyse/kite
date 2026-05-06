@@ -1,0 +1,22 @@
+# Local minikube overrides — layer on top of values.yaml + values-dev.yaml.
+#
+# Direct helm install (no ArgoCD):
+#   helm install kite-service ./helm/kite-service -n kite-dev --create-namespace \
+#     -f helm/kite-service/values.yaml \
+#     -f helm/kite-service/values-dev.yaml \
+#     -f helm/kite-service/values-local.yaml
+#
+# With ArgoCD: add "- values-local.yaml" to the Application's helm.valueFiles
+# list in gitops/apps/dev/kite-service.yaml, commit, and push to your local
+# git remote before syncing. Remember to remove it before pushing to GitHub.
+
+image:
+  repository: kite-service
+  tag: local
+  pullPolicy: Never  # image is loaded into minikube's daemon, not pulled from a registry
+
+serviceMonitor:
+  enabled: false     # Prometheus CRDs not present without kube-prometheus-stack
+
+autoscaling:
+  enabled: false

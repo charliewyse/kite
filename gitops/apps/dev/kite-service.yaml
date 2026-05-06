@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kite-service-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: kite-service
+    environment: dev
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Link back to the CI run that produced the current image
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: devops-alerts
+spec:
+  project: kite
+
+  source:
+    repoURL: https://github.com/ORG/kite  # replace ORG
+    targetRevision: main
+    path: helm/kite-service
+    helm:
+      releaseName: kite-service
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kite-dev
+
+  syncPolicy:
+    # Dev auto-syncs on every commit — fast feedback loop
+    automated:
+      prune: true     # remove resources deleted from git
+      selfHeal: true  # revert manual kubectl edits
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore HPA's live replica count so Kubernetes can scale freely
+  ignoreDifferences:
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/currentMetrics
+        - /spec/metrics

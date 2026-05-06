@@ -1,0 +1,41 @@
+# AppProject scopes all kite Applications to this repo and these namespaces.
+# Apply once: kubectl apply -n argocd -f gitops/argocd/appproject.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: kite
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Kite microservice — all environments
+
+  # Only allow deployments sourced from this repository
+  sourceRepos:
+    - https://github.com/ORG/kite  # replace ORG with your GitHub org/user
+
+  # Only allow deployments into the three kite namespaces
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: kite-dev
+    - server: https://kubernetes.default.svc
+      namespace: kite-staging
+    - server: https://kubernetes.default.svc
+      namespace: kite-prod
+    # argocd namespace is needed so the app-of-apps can manage Application CRs
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+
+  # Cluster-scoped resources this project is allowed to create
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  # All namespace-scoped resource kinds are permitted within the destinations above
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # Prevent accidental orphaned resources when an Application is deleted
+  orphanedResources:
+    warn: true

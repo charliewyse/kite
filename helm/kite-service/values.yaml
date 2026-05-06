@@ -1,0 +1,114 @@
+replicaCount: 2
+
+image:
+  # Override per environment, e.g. <account>.dkr.ecr.us-east-1.amazonaws.com/dev/kite-service
+  repository: ""
+  pullPolicy: IfNotPresent
+  # Defaults to Chart.appVersion; overridden by CI with the commit SHA tag
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # IRSA example:
+  # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/kite-service
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 9090
+
+ingress:
+  enabled: false
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  hosts:
+    - host: kite.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 3
+
+# Gives the app up to 60 s to pass its first liveness check before
+# the normal failureThreshold applies. Prevents crash-loop on slow starts.
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  failureThreshold: 30
+  periodSeconds: 2
+
+# Extra environment variables injected directly into the container.
+# Use this for non-sensitive config; use secretRef for secrets.
+env: []
+
+# Key/value pairs added to the ConfigMap and injected via envFrom.
+config: {}
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  additionalLabels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

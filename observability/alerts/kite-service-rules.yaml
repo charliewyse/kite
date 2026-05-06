@@ -1,0 +1,135 @@
+# Apply to the namespace where kube-prometheus-stack's Prometheus lives,
+# or any namespace it is configured to watch.
+#
+#   kubectl apply -n monitoring -f observability/alerts/kite-service-rules.yaml
+#
+# The `release: kube-prometheus-stack` label is required for the Prometheus
+# operator to discover this rule (matches the ruleSelector in the default install).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kite-service
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/name: kite-service
+spec:
+  groups:
+    # ── Recording rules ──────────────────────────────────────────────────────
+    # Pre-compute expensive histogram_quantile calls so dashboards and alerts
+    # query the recordings instead of re-running the full aggregation each time.
+    - name: kite-service.recordings
+      interval: 30s
+      rules:
+        - record: kite:http_requests:rate5m
+          expr: |
+            sum(rate(http_requests_total[5m])) by (namespace, method, path, status)
+
+        - record: kite:http_requests:error_rate5m
+          expr: |
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (namespace)
+            /
+            sum(rate(http_requests_total[5m])) by (namespace)
+
+        - record: kite:http_request_duration_seconds:p50
+          expr: |
+            histogram_quantile(0.50,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, namespace)
+            )
+
+        - record: kite:http_request_duration_seconds:p95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, namespace)
+            )
+
+        - record: kite:http_request_duration_seconds:p99
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, namespace)
+            )
+
+    # ── Alerting rules ───────────────────────────────────────────────────────
+    - name: kite-service.alerts
+      rules:
+        # ── Traffic ─────────────────────────────────────────────────────────
+
+        - alert: KiteHighErrorRate
+          expr: |
+            kite:http_requests:error_rate5m > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "High 5xx error rate in {{ $labels.namespace }}"
+            description: >
+              {{ $labels.namespace }} error rate is {{ $value | humanizePercentage }}
+              over the last 5 minutes (threshold: 5%).
+            runbook_url: "https://github.com/ORG/kite/blob/main/docs/runbooks/high-error-rate.md"
+
+        # ── Latency ──────────────────────────────────────────────────────────
+
+        - alert: KiteHighLatencyP95
+          expr: |
+            kite:http_request_duration_seconds:p95 > 1
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Elevated p95 latency in {{ $labels.namespace }}"
+            description: >
+              p95 request latency is {{ $value | humanizeDuration }} in {{ $labels.namespace }}
+              (threshold: 1 s).
+            runbook_url: "https://github.com/ORG/kite/blob/main/docs/runbooks/high-latency.md"
+
+        - alert: KiteHighLatencyP99
+          expr: |
+            kite:http_request_duration_seconds:p99 > 2
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Critical p99 latency in {{ $labels.namespace }}"
+            description: >
+              p99 request latency is {{ $value | humanizeDuration }} in {{ $labels.namespace }}
+              (threshold: 2 s). Tail latency is severely elevated — investigate immediately.
+            runbook_url: "https://github.com/ORG/kite/blob/main/docs/runbooks/high-latency.md"
+
+        # ── Availability ─────────────────────────────────────────────────────
+
+        - alert: KitePodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{
+              namespace=~"kite-.*",
+              container="kite-service"
+            }[5m]) * 60 > 1
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash-looping"
+            description: >
+              {{ $labels.pod }} in {{ $labels.namespace }} has restarted more than once
+              per minute for the past 5 minutes.
+            runbook_url: "https://github.com/ORG/kite/blob/main/docs/runbooks/crash-loop.md"
+
+        - alert: KiteDeploymentUnavailable
+          expr: |
+            kube_deployment_status_replicas_unavailable{
+              namespace=~"kite-.*",
+              deployment="kite-service"
+            } > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "{{ $labels.deployment }} has unavailable replicas"
+            description: >
+              {{ $value }} replica(s) unavailable in {{ $labels.namespace }}/{{ $labels.deployment }}
+              for more than 5 minutes.
+            runbook_url: "https://github.com/ORG/kite/blob/main/docs/runbooks/deployment-unavailable.md"

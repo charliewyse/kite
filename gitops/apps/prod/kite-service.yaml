@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kite-service-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: kite-service
+    environment: prod
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: devops-alerts
+    notifications.argoproj.io/subscribe.on-deployed.slack: releases
+spec:
+  project: kite
+
+  source:
+    repoURL: git://192.168.49.1/kite-bare.git
+    targetRevision: main
+    path: helm/kite-service
+    helm:
+      releaseName: kite-service
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+        - values-local.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kite-prod
+
+  syncPolicy:
+    # Prod requires explicit human sync — no automation, no surprises.
+    # Promotion flow:
+    #   1. CD workflow runs:  gh workflow run cd.yaml -f environment=prod -f image_tag=sha-abc1234
+    #   2. That commits the new tag to values-prod.yaml
+    #   3. Engineer reviews the diff in the ArgoCD UI and clicks Sync (or: argocd app sync kite-service-prod)
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+
+  ignoreDifferences:
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/currentMetrics
+        - /spec/metrics

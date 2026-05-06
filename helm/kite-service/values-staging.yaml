@@ -1,0 +1,25 @@
+image:
+  repository: "AWS_ACCOUNT_ID.dkr.ecr.AWS_REGION.amazonaws.com/staging/kite-service"
+  tag: ""  # set manually via CD workflow promote job before syncing
+
+replicaCount: 2
+
+ingress:
+  enabled: true
+  hosts:
+    - host: kite-staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
