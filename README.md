@@ -226,15 +226,14 @@ Set these on the repository before pushing:
 
 | Key | Type | Value |
 |---|---|---|
-| `AWS_ROLE_ARN` | Secret | IAM role ARN for GitHub OIDC federation |
-| `AWS_REGION` | Variable | e.g. `us-east-1` |
-| `ECR_REPOSITORY` | Variable | e.g. `dev/kite-service` |
+| `DOCKERHUB_USERNAME` | Secret | Docker Hub username |
+| `DOCKERHUB_TOKEN` | Secret | Docker Hub access token (not your password — generate one at hub.docker.com → Account Settings → Security) |
 
 ### 3 — Deploy
 
-Push to `main`. CI runs tests, builds and pushes the image to ECR, scans it with
-Trivy, then CD bumps `values-dev.yaml` with the new `sha-<7char>` tag. ArgoCD
-auto-syncs dev within seconds.
+Push to `main`. CI runs tests, builds the image, logs in to Docker Hub, pushes
+it, then scans with Trivy. CD then bumps `values-dev.yaml` with the new
+`sha-<7char>` tag. ArgoCD auto-syncs dev within seconds.
 
 To promote to staging or prod:
 
@@ -338,7 +337,7 @@ cluster capacity is tight.
 | **Secrets** | AWS Secrets Manager + CSI Secrets Store driver; values are mounted as files, never injected as env vars or stored in manifests |
 | **IAM / RBAC** | IRSA binds a scoped IAM role to each service's `ServiceAccount` — no shared node-level roles; Kubernetes RBAC uses minimal `Role` bindings, no wildcards |
 | **Network** | `NetworkPolicy` default-deny-all per namespace; explicit ingress rules for ALB→pod (:8080) and Prometheus→pod (:9090) only |
-| **Image** | Distroless base image (no shell, no package manager); Trivy CRITICAL scan blocks the CI pipeline; ECR image scanning enabled on push |
+| **Image** | Distroless base image (no shell, no package manager); Trivy CRITICAL scan blocks the CI pipeline on every push to main |
 | **Runtime** | `readOnlyRootFilesystem: true`, `runAsNonRoot: true` (UID 65532), all Linux capabilities dropped |
 | **Ingress** | TLS terminates at the ALB; `ssl-redirect: "443"` annotation forces HTTPS; metrics port (:9090) is never exposed via Ingress |
 | **Supply chain** | `go mod verify` in CI; GitHub Actions pinned to SHA instead of mutable tags |

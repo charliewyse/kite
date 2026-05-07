@@ -1,5 +1,5 @@
 image:
-  repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/prod/kite-service"
+  repository: "charliewyse/kite-service"
   tag: ""  # set manually via CD workflow promote job before syncing
 
 replicaCount: 3

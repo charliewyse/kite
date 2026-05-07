@@ -1,5 +1,5 @@
 image:
-  repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/dev/kite-service"
+  repository: "charliewyse/kite-service"
   tag: ""  # bumped by CD workflow on every merge to main
 
 replicaCount: 1
