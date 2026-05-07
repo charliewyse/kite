@@ -1,5 +1,5 @@
 image:
-  repository: "AWS_ACCOUNT_ID.dkr.ecr.AWS_REGION.amazonaws.com/dev/kite-service"
+  repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/dev/kite-service"
   tag: ""  # bumped by CD workflow on every merge to main
 
 replicaCount: 1

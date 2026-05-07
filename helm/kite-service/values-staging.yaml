@@ -1,5 +1,5 @@
 image:
-  repository: "AWS_ACCOUNT_ID.dkr.ecr.AWS_REGION.amazonaws.com/staging/kite-service"
+  repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/staging/kite-service"
   tag: ""  # set manually via CD workflow promote job before syncing
 
 replicaCount: 2

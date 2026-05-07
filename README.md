@@ -138,34 +138,28 @@ curl -H "Host: kite.local" http://$MINIKUBE_IP/ping
 
 ### Testing the ArgoCD GitOps flow locally
 
-ArgoCD needs a git remote reachable from inside the cluster. The host machine
-is accessible at `192.168.49.1` from minikube pods (Docker driver default).
+ArgoCD pulls directly from `https://github.com/charliewyse/kite` — no local
+git daemon required. Minikube has outbound internet access by default, so the
+public GitHub repo is reachable from inside the cluster.
 
 ```bash
-# 1 — Initialise the repo and start a local git daemon on port 9418
-git init && git add . && git commit -m "initial" && git branch -m main
-git init --bare /tmp/kite-bare.git
-git remote add local /tmp/kite-bare.git
-git push local main
-git daemon --base-path=/tmp --export-all --reuseaddr --port=9418 &
-
-# 2 — Point the gitops manifests at the local daemon, then push
-find gitops/ -name "*.yaml" -exec sed -i \
-  's|https://github.com/ORG/kite|git://192.168.49.1/kite-bare.git|g' {} \;
-# Also add "- values-local.yaml" to helm.valueFiles in
-# gitops/apps/dev/kite-service.yaml so ArgoCD uses the local image overrides
-git add gitops/ && git commit -m "chore: local git daemon URLs" && git push local main
-
-# 3 — Install ArgoCD
+# 1 — Install ArgoCD
 kubectl create namespace argocd
 kubectl apply -n argocd \
   -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl wait --for=condition=Ready pod \
   -l app.kubernetes.io/name=argocd-server -n argocd --timeout=180s
 
-# 4 — Bootstrap the app-of-apps
+# 2 — Bootstrap the app-of-apps (reads from GitHub)
 kubectl apply -n argocd -f gitops/argocd/appproject.yaml
 kubectl apply -n argocd -f gitops/argocd/app-of-apps.yaml
+
+# 3 — Access the ArgoCD UI (keep this terminal open)
+kubectl port-forward svc/argocd-server -n argocd 8443:443 &
+# Then open https://localhost:8443
+# Username: admin
+# Password: $(kubectl -n argocd get secret argocd-initial-admin-secret \
+#              -o jsonpath="{.data.password}" | base64 -d)
 ```
 
 **Gotchas learned the hard way:**
@@ -179,25 +173,35 @@ kubectl apply -n argocd -f gitops/argocd/app-of-apps.yaml
   Then `http://kite.local` works in the browser. Raw `curl` against the IP
   works as long as you pass `-H "Host: kite.local"`.
 
-
 - **Don't `helm install` before ArgoCD takes ownership.** If you install
   manually first, ArgoCD will conflict with the existing release tracking
   metadata. Either let ArgoCD do the initial install, or `helm uninstall` first.
+
 - **ArgoCD polls git every ~3 minutes.** After pushing a change, force an
   immediate refresh instead of waiting:
   ```bash
   kubectl -n argocd annotate application kite-service-dev \
     argocd.argoproj.io/refresh=hard --overwrite
   ```
-- **`serviceMonitor.enabled: true` requires the Prometheus CRDs.** Without
-  kube-prometheus-stack installed, the sync will fail with
-  `could not find monitoring.coreos.com/ServiceMonitor`. The local overrides
-  in `values-local.yaml` handle this, but they must be included in ArgoCD's
-  `helm.valueFiles` list as well, not just the helm CLI invocation.
-- **Revert before pushing to GitHub.** The local git daemon URLs and
-  `values-local.yaml` additions to the Application manifests are local-only.
-  Run `git diff` before pushing to make sure none of those changes leak into
-  the production manifests.
+
+- **`kite-service-dev` stays OutOfSync in minikube.** `values-dev.yaml` enables
+  the ServiceMonitor, which requires the `monitoring.coreos.com/ServiceMonitor`
+  CRD from kube-prometheus-stack. Without it, ArgoCD cannot apply the resource
+  and the app stays OutOfSync. The pods are healthy — this is an expected
+  limitation of simulating a cloud-native stack locally.
+
+- **Staging/prod show Progressing in minikube.** Their Ingress uses
+  `className: alb`, which requires the AWS Load Balancer Controller to assign an
+  external address. Without it the Ingress never becomes ready. All pods are
+  Running — this is also expected when running without cloud infrastructure.
+
+- **`kite-staging` and `kite-prod` namespaces must be created manually.**
+  `CreateNamespace=true` requires cluster-admin RBAC that ArgoCD's default
+  minikube install doesn't have. Run before syncing:
+  ```bash
+  kubectl create namespace kite-staging
+  kubectl create namespace kite-prod
+  ```
 
 ---
 
@@ -209,7 +213,6 @@ kubectl apply -n argocd -f gitops/argocd/app-of-apps.yaml
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# Replace ORG in all gitops/ files with your GitHub org, then:
 kubectl apply -n argocd -f gitops/argocd/appproject.yaml
 kubectl apply -n argocd -f gitops/argocd/app-of-apps.yaml
 ```
@@ -244,6 +247,36 @@ gh workflow run cd.yaml \
 # Then sync in ArgoCD UI, or:
 argocd app sync kite-service-staging
 ```
+
+### Rollback strategy
+
+**Preferred: git revert (keeps audit trail)**
+
+```bash
+# Revert the tag bump commit — ArgoCD auto-syncs dev, staging/prod need manual sync
+git revert HEAD --no-edit
+git push
+```
+
+**Fast: ArgoCD revision rollback**
+
+```bash
+# List available history
+argocd app history kite-service-dev
+
+# Roll back to a specific revision (ArgoCD revision ID, not git SHA)
+argocd app rollback kite-service-dev <revision-id>
+```
+
+**Emergency: kubectl only (bypasses GitOps — reconcile git afterwards)**
+
+```bash
+kubectl rollout undo deployment/kite-service -n kite-dev
+```
+
+The `maxUnavailable: 0` rolling update policy means the previous ReplicaSet is kept alive until the new pods pass readiness — so a rollback is instant and zero-downtime.
+
+---
 
 ### 4 — Import observability
 
@@ -295,6 +328,20 @@ the same permissions — a significant blast radius if one pod is compromised.
 Guarantees zero downtime during deploys. A new pod must pass its readiness probe
 before any old pod is terminated. The cost is slightly longer deploys when
 cluster capacity is tight.
+
+---
+
+## Security
+
+| Layer | Approach |
+|---|---|
+| **Secrets** | AWS Secrets Manager + CSI Secrets Store driver; values are mounted as files, never injected as env vars or stored in manifests |
+| **IAM / RBAC** | IRSA binds a scoped IAM role to each service's `ServiceAccount` — no shared node-level roles; Kubernetes RBAC uses minimal `Role` bindings, no wildcards |
+| **Network** | `NetworkPolicy` default-deny-all per namespace; explicit ingress rules for ALB→pod (:8080) and Prometheus→pod (:9090) only |
+| **Image** | Distroless base image (no shell, no package manager); Trivy CRITICAL scan blocks the CI pipeline; ECR image scanning enabled on push |
+| **Runtime** | `readOnlyRootFilesystem: true`, `runAsNonRoot: true` (UID 65532), all Linux capabilities dropped |
+| **Ingress** | TLS terminates at the ALB; `ssl-redirect: "443"` annotation forces HTTPS; metrics port (:9090) is never exposed via Ingress |
+| **Supply chain** | `go mod verify` in CI; GitHub Actions pinned to SHA instead of mutable tags |
 
 ---
 
