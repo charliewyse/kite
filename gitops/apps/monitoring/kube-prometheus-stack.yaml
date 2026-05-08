@@ -20,8 +20,9 @@ spec:
 
         prometheus:
           prometheusSpec:
-            # Scrape ServiceMonitors from all namespaces, not just the release namespace
+            # Scrape ServiceMonitors and PrometheusRules from all namespaces
             serviceMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
 
         grafana:
           adminPassword: admin
