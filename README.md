@@ -10,7 +10,7 @@ GitOps, CI/CD, and observability on EKS.
 ```
 ┌─────────────┐   push    ┌──────────────────────────────────────────────┐
 │  Developer  │──────────▶│              GitHub Actions                  │
-└─────────────┘           │  ci.yaml: test → build → Docker Hub push → scan │
+└─────────────┘           │  ci.yaml: test (build handled locally via Makefile) │
                           │  cd.yaml: yq-patch values-dev.yaml → commit  │
                           └──────────────┬───────────────────────────────┘
                                          │ git commit (image tag bump)
@@ -78,7 +78,7 @@ kite/
 │   └── apps/{dev,staging,prod}/kite-service.yaml
 │
 ├── .github/workflows/
-│   ├── ci.yaml                 # test → build → Docker Hub push → Trivy scan
+│   ├── ci.yaml                 # test → go vet + go test (no registry push)
 │   └── cd.yaml                 # image tag bump (dev auto, staging/prod manual)
 │
 ├── observability/
@@ -393,11 +393,11 @@ to a real Slack webhook so sync failures and successful deploys actually page
 someone. The annotations are stubbed but the notification controller is not
 installed.
 
-**Separate image repositories per environment**
-Currently all environments pull from the same Docker Hub image and the tag is
-environment-specific. Proper isolation would use separate repositories (or a
-private registry per environment) so a dev image can never accidentally land
-in prod.
+**Container registry**
+Images are currently built locally into minikube's daemon. In production this
+would be replaced with a private registry (ECR, Docker Hub, or similar) with
+separate repositories per environment so a dev image can never accidentally
+land in prod.
 
 **Pre-commit hooks**
 `golangci-lint` and `helm lint` run in CI but not locally. Adding

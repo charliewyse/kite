@@ -24,7 +24,7 @@ release: build
 	git add $(HELMDIR)/values-dev.yaml \
 	        $(HELMDIR)/values-staging.yaml \
 	        $(HELMDIR)/values-prod.yaml
-	git commit -m "chore(release): $(VERSION)"
+	git diff --staged --quiet || git commit -m "chore(release): $(VERSION)"
 	git tag v$(VERSION)
 	git push origin main
 	git push origin v$(VERSION)

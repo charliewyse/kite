@@ -149,7 +149,7 @@ One dashboard with four panels:
 | Secrets | AWS Secrets Manager + CSI driver; never in env vars or manifests |
 | RBAC | Dedicated `ServiceAccount` per service; minimal ClusterRole (no wildcards) |
 | Network | `NetworkPolicy` default-deny-all; explicit allow for ingress and metrics scrape |
-| Image | Distroless base; Trivy CRITICAL scan blocks CI on every push; Docker Hub vulnerability scanning enabled |
+| Image | Distroless base; Trivy CRITICAL scan blocks CI on every push to main |
 | IAM | IRSA per workload; no instance-level IAM roles for pods |
 | Ingress | TLS termination at ALB; `force-ssl-redirect` annotation |
 | Supply chain | `go mod verify` in CI; pinned action versions (SHA) |
