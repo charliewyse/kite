@@ -41,6 +41,8 @@ spec:
 
         # These create Services in kube-system to scrape Kubernetes internals.
         # Disabled here — enable in production with kube-system added to the AppProject.
+        coreDns:
+          enabled: false
         kubeEtcd:
           enabled: false
         kubeProxy:
