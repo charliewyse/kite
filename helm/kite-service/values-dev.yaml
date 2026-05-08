@@ -7,8 +7,10 @@ replicaCount: 1
 
 ingress:
   enabled: true
+  className: nginx
+  annotations: {}
   hosts:
-    - host: kite-dev.example.com
+    - host: kite-dev.local
       paths:
         - path: /
           pathType: Prefix

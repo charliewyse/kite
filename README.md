@@ -115,30 +115,11 @@ docker run --rm -p 8080:8080 -p 9090:9090 kite-service:local
 
 ### Local Kubernetes (minikube)
 
-`values-local.yaml` contains only the overrides that don't work without cloud infrastructure
-(autoscaling limits, etc.). All three environment value files already use `pullPolicy: Never`
-and `className: nginx`, so the full ArgoCD flow works out of the box on minikube.
+All three environment value files use `pullPolicy: Never` and `className: nginx`, so the
+full ArgoCD GitOps flow works out of the box on minikube — no registry required. Use the
+ArgoCD flow below rather than `helm install` directly.
 
-```bash
-# 1 — Build the image directly into minikube's Docker daemon (no registry needed)
-eval $(minikube docker-env)
-docker build -t kite-service:local ./app
-
-# 2 — Install with local overrides layered on top of the dev values
-kubectl create namespace kite-dev
-helm install kite-service ./helm/kite-service \
-  -n kite-dev \
-  -f helm/kite-service/values.yaml \
-  -f helm/kite-service/values-dev.yaml \
-  -f helm/kite-service/values-local.yaml
-
-# 3 — Hit the endpoints through the nginx ingress
-MINIKUBE_IP=$(minikube ip)
-curl -H "Host: kite.local" http://$MINIKUBE_IP/health
-curl -H "Host: kite.local" http://$MINIKUBE_IP/ping
-```
-
-### Testing the ArgoCD GitOps flow locally
+### ArgoCD GitOps flow (recommended)
 
 ArgoCD pulls directly from `https://github.com/charliewyse/kite` — no local
 git daemon required. Minikube has outbound internet access by default, so the
@@ -152,28 +133,58 @@ kubectl apply -n argocd \
 kubectl wait --for=condition=Ready pod \
   -l app.kubernetes.io/name=argocd-server -n argocd --timeout=180s
 
-# 2 — Bootstrap the app-of-apps (reads from GitHub)
+# 2 — Create app namespaces (CreateNamespace=true needs cluster-admin RBAC ArgoCD doesn't have by default)
+kubectl create namespace kite-dev
+kubectl create namespace kite-staging
+kubectl create namespace kite-prod
+
+# 3 — Bootstrap the app-of-apps (reads from GitHub)
 kubectl apply -n argocd -f gitops/argocd/appproject.yaml
 kubectl apply -n argocd -f gitops/argocd/app-of-apps.yaml
-
-# 3 — Access the ArgoCD UI (keep this terminal open)
-kubectl port-forward svc/argocd-server -n argocd 8443:443 &
-# Then open https://localhost:8443
-# Username: admin
-# Password: $(kubectl -n argocd get secret argocd-initial-admin-secret \
-#              -o jsonpath="{.data.password}" | base64 -d)
 ```
 
-**Gotchas learned the hard way:**
+ArgoCD will discover and sync all applications automatically. The monitoring stack
+(kube-prometheus-stack) will deploy first; dev/staging/prod will follow once the
+ServiceMonitor CRDs are available.
 
-- **Browser shows nginx 404 when hitting the minikube IP directly.** Nginx
-  routes on the `Host` header, not the IP. Add an entry to `/etc/hosts` so
-  the browser sends the right header:
-  ```bash
-  echo "$(minikube ip) kite.local" | sudo tee -a /etc/hosts
-  ```
-  Then `http://kite.local` works in the browser. Raw `curl` against the IP
-  works as long as you pass `-H "Host: kite.local"`.
+---
+
+### Accessing everything locally
+
+All UIs require either a `kubectl port-forward` (for cluster services) or an `/etc/hosts`
+entry (for the nginx ingress). Run these once per terminal session:
+
+**Step 1 — Add hosts entries** (one-time setup):
+
+```bash
+echo "$(minikube ip) kite-dev.local kite-staging.local kite-prod.local" | sudo tee -a /etc/hosts
+```
+
+**Step 2 — Start port-forwards** (run each in the background or a separate terminal):
+
+```bash
+# ArgoCD UI
+kubectl port-forward svc/argocd-server -n argocd 8443:443 &
+
+# Grafana
+kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3000:80 &
+
+# Prometheus (use 9091 — port 9090 is taken by the app's metrics server)
+kubectl port-forward svc/kube-prometheus-stack-prometheus -n monitoring 9091:9090 &
+```
+
+**URLs and credentials:**
+
+| Service | URL | Credentials |
+|---|---|---|
+| **kite-service (dev)** | http://kite-dev.local | — |
+| **kite-service (staging)** | http://kite-staging.local | — |
+| **kite-service (prod)** | http://kite-prod.local | — |
+| **ArgoCD UI** | https://localhost:8443 | admin / `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" \| base64 -d` |
+| **Grafana** | http://localhost:3000 | admin / admin |
+| **Prometheus alerts** | http://localhost:9091/alerts | — |
+
+**Gotchas learned the hard way:**
 
 - **Don't `helm install` before ArgoCD takes ownership.** If you install
   manually first, ArgoCD will conflict with the existing release tracking
@@ -187,17 +198,9 @@ kubectl port-forward svc/argocd-server -n argocd 8443:443 &
   ```
 
 - **`kite-service-dev` may show OutOfSync if kube-prometheus-stack isn't deployed yet.**
-  The ServiceMonitor CRD is provided by `kube-prometheus-stack`. ArgoCD deploys it
-  automatically via the app-of-apps, but it can take a minute to come up on first boot.
-  Once the monitoring stack is Healthy the dev app will reconcile on its own.
-
-- **`kite-staging` and `kite-prod` namespaces must be created manually.**
-  `CreateNamespace=true` requires cluster-admin RBAC that ArgoCD's default
-  minikube install doesn't have. Run before syncing:
-  ```bash
-  kubectl create namespace kite-staging
-  kubectl create namespace kite-prod
-  ```
+  The ServiceMonitor and PrometheusRule CRDs are provided by `kube-prometheus-stack`.
+  ArgoCD deploys it automatically via the app-of-apps, but it can take a minute to come
+  up on first boot. Once the monitoring stack is Healthy the app will reconcile on its own.
 
 ---
 
