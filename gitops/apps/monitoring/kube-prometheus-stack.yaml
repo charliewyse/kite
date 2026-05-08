@@ -39,6 +39,17 @@ spec:
         nodeExporter:
           enabled: true
 
+        # These create Services in kube-system to scrape Kubernetes internals.
+        # Disabled here — enable in production with kube-system added to the AppProject.
+        kubeEtcd:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
