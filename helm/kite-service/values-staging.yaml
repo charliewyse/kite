@@ -1,6 +1,6 @@
 image:
   repository: "charliewyse/kite-service"
-  tag: ""  # set manually via CD workflow promote job before syncing
+  tag: "0.0.1"  # promoted via CD workflow dispatch
 
 replicaCount: 2
 

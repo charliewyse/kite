@@ -231,9 +231,18 @@ Set these on the repository before pushing:
 
 ### 3 — Deploy
 
-Push to `main`. CI runs tests, builds the image, logs in to Docker Hub, pushes
-it, then scans with Trivy. CD then bumps `values-dev.yaml` with the new
-`sha-<7char>` tag. ArgoCD auto-syncs dev within seconds.
+Push a semver tag to trigger a release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+CI runs tests, builds the image, logs in to Docker Hub, pushes it tagged as
+`1.0.0` / `1.0` / `1`, then scans with Trivy. CD then bumps `values-dev.yaml`
+with the new version tag. ArgoCD auto-syncs dev within seconds.
+
+Pushes to `main` (without a tag) run tests only — no image is built or pushed.
 
 To promote to staging or prod:
 
@@ -241,7 +250,7 @@ To promote to staging or prod:
 # Via GitHub Actions UI (workflow_dispatch on cd.yaml)
 gh workflow run cd.yaml \
   -f environment=staging \
-  -f image_tag=sha-abc1234
+  -f image_tag=1.2.3
 
 # Then sync in ArgoCD UI, or:
 argocd app sync kite-service-staging

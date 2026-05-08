@@ -88,7 +88,7 @@ kite/
 push to main
   └─ ci.yaml
        ├── go test ./...
-       ├── docker build → login to Docker Hub → push (tag: sha-<commit>, latest)
+       ├── docker build → login to Docker Hub → push (tags: 1.2.3, 1.2, 1)
        └── trivy scan blocks on CRITICAL CVEs
 
   └─ cd.yaml (triggered after ci succeeds)

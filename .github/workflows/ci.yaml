@@ -6,6 +6,7 @@ on:
     paths:
       - "app/**"
       - ".github/workflows/ci.yaml"
+    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
     paths:
@@ -44,8 +45,8 @@ jobs:
     name: Build & Push
     runs-on: ubuntu-latest
     needs: test
-    # Only push on merges to main — not on PRs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only run when a semver tag is pushed
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
 
@@ -58,8 +59,9 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=sha,prefix=sha-,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -90,11 +92,11 @@ jobs:
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
+          image-ref: ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
           format: table
           exit-code: "1"
           severity: CRITICAL
           ignore-unfixed: true
 
     outputs:
-      image-tag: sha-${{ github.sha }}
+      image-tag: ${{ steps.meta.outputs.version }}

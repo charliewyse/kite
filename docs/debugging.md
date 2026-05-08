@@ -255,6 +255,6 @@ git push
 argocd app rollback kite-service-dev <revision>
 
 # Emergency: pin a known-good image tag without waiting for git
-argocd app set kite-service-dev --helm-set image.tag=sha-abc1234
+argocd app set kite-service-dev --helm-set image.tag=1.2.3
 argocd app sync kite-service-dev
 ```

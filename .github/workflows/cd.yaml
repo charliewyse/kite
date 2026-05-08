@@ -1,11 +1,10 @@
 name: CD
 
 on:
-  # Auto-trigger for dev after CI passes on main
+  # Auto-trigger for dev after CI passes on a semver tag
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
 
   # Manual promotion to staging or prod
   workflow_dispatch:
@@ -16,7 +15,7 @@ on:
         type: choice
         options: [staging, prod]
       image_tag:
-        description: "Image tag to deploy (e.g. sha-abc1234)"
+        description: "Image tag to deploy (e.g. 1.2.3)"
         required: true
         type: string
 
@@ -24,10 +23,11 @@ jobs:
   deploy-dev:
     name: Deploy → dev
     runs-on: ubuntu-latest
-    # Only run when CI succeeded (not on manual dispatch)
+    # Only run when CI succeeded on a semver tag push
     if: >
       github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     permissions:
       contents: write
 
@@ -37,11 +37,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: main
 
-      - name: Derive image tag from triggering run
+      - name: Derive image tag from git tag
         id: tag
         run: |
-          SHA="${{ github.event.workflow_run.head_sha }}"
-          echo "value=sha-${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          # Strip the leading 'v' to match what metadata-action produces
+          # e.g. v1.2.3 → 1.2.3
+          RAW="${{ github.event.workflow_run.head_branch }}"
+          echo "value=${RAW#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install yq
         run: |
