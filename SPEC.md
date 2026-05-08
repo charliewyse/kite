@@ -2,8 +2,10 @@
 
 ## Overview
 
-A production-grade microservice onboarding onto EKS, with GitHub Actions CI, ArgoCD GitOps, and
-Prometheus/Grafana observability. The app is a lightweight Go HTTP service.
+A production-grade microservice onboarding exercise — fully runnable on minikube with no cloud
+account required. GitHub Actions CI, ArgoCD GitOps, and Prometheus/Grafana observability.
+The app is a lightweight Go HTTP service. See the README Production path section for how each
+layer maps to a real EKS deployment.
 
 ---
 
@@ -15,7 +17,7 @@ Prometheus/Grafana observability. The app is a lightweight Go HTTP service.
 | Container registry | minikube daemon | No registry required locally; `pullPolicy: Never` uses the image built directly into minikube |
 | Package format | Helm | Templated values per environment; ArgoCD natively supports it |
 | GitOps engine | ArgoCD | App-of-Apps pattern, sync policies, drift detection |
-| Ingress | AWS ALB Ingress Controller | Native EKS integration, target-group health checks |
+| Ingress | nginx (minikube PoC) → AWS ALB in production | nginx works without cloud; ALB gives native EKS health checks and WAF |
 | Observability | Prometheus + Grafana | Matches stated stack; ServiceMonitor for scrape discovery |
 | Secrets | AWS Secrets Manager + ASCP | Mounts secrets as files; no env-var leakage |
 
@@ -76,8 +78,7 @@ kite/
 │
 └── .github/
     └── workflows/
-        ├── ci.yaml                  # build + push + lint + test
-        └── cd.yaml                  # image tag update → triggers ArgoCD sync
+        └── ci.yaml                  # go vet + go test -race (test gate only)
 ```
 
 ---
@@ -86,15 +87,16 @@ kite/
 
 ```
 push to main
-  └─ ci.yaml
-       ├── go test ./...
-       └── go vet + go test -race (test gate only, no image build)
+  └─ ci.yaml (GitHub Actions)
+       └── go vet + go test -race (test gate only, no image build or push)
 
-  └─ Makefile release target (run locally)
-       ├── docker build into minikube daemon (pullPolicy: Never, no registry)
-       ├── yq-patch values-{dev,staging,prod}.yaml image.tag → commit → push
-       └── git tag vX.Y.Z → push
-           ArgoCD auto-syncs dev; staging/prod require manual sync
+make release VERSION=x.y.z  (run locally)
+  ├── docker build into minikube daemon (pullPolicy: Never, no registry)
+  ├── sed -i: bump image.tag in values-{dev,staging,prod}.yaml
+  ├── git commit + git push origin main
+  └── git tag vX.Y.Z + git push origin vX.Y.Z
+      ArgoCD detects values file change → auto-syncs dev
+      staging/prod require a manual sync in the ArgoCD UI
 ```
 
 Rollback: revert the values commit — ArgoCD self-heals to the previous image tag.
@@ -158,8 +160,18 @@ One dashboard with four panels:
 
 ## Tradeoffs & What I'd Improve
 
-- **Single NAT GW** saves cost in dev/staging but is an AZ failure point — would use per-AZ in prod
-- **Helm over raw manifests** adds complexity for trivial apps but is the right call once you have envs
-- **No service mesh yet** — would add Istio/Linkerd for mTLS, circuit-breaking, and richer traces
-- **OpenTelemetry tracing** is stubbed; would wire OTLP → Tempo in a follow-up
-- **ArgoCD notifications** (Slack on sync failure) not yet wired
+| PoC choice | Production equivalent |
+|---|---|
+| minikube | EKS with managed node groups across multiple AZs |
+| nginx ingress | AWS ALB Ingress Controller (`ingressClassName: alb`) |
+| No TLS | Cloudflare in front of ALB — managed SSL, CDN, DDoS protection, zero cert-manager config |
+| `pullPolicy: Never` (minikube daemon) | ECR per environment; CI pushes on merge to main |
+| No IAM | IRSA — each `ServiceAccount` gets a scoped IAM role via OIDC; no node-level roles |
+| No secrets | AWS Secrets Manager + CSI Secrets Store driver; files mounted into pods, never env vars |
+| Single NAT GW | Per-AZ NAT gateway — eliminates AZ failure as a network single point |
+
+**Also with more time:**
+- Service mesh (Istio or Linkerd) for mTLS, circuit-breaking, and per-route traffic metrics
+- OpenTelemetry tracing — wire OTLP → Tempo or Jaeger
+- ArgoCD notification controller — make the Slack annotations actually work
+- Pre-commit hooks for `golangci-lint` and `helm lint`

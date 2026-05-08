@@ -1,46 +1,46 @@
 # Kite Service
 
 A production-grade microservice onboarding exercise demonstrating Kubernetes deployment,
-GitOps, CI/CD, and observability on EKS.
+GitOps, CI/CD, and observability — runnable end-to-end on **minikube with no cloud account
+required**. Anyone can clone this repo, run `minikube start`, and get a fully working
+multi-environment GitOps system. The [Production path](#production-path-what-wed-do-differently)
+section maps every PoC shortcut to its cloud-native equivalent.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────┐   push    ┌──────────────────────────────────────────────┐
-│  Developer  │──────────▶│              GitHub Actions                  │
-└─────────────┘           │  ci.yaml: test (build handled locally via Makefile) │
-                          │  cd.yaml: yq-patch values-dev.yaml → commit  │
-                          └──────────────┬───────────────────────────────┘
-                                         │ git commit (image tag bump)
-                                         ▼
-                          ┌──────────────────────────┐
-                          │          ArgoCD           │
-                          │  watches gitops/apps/     │
-                          │  dev:     auto-sync       │
-                          │  staging: manual sync     │
-                          │  prod:    manual sync     │
-                          └──────────────┬────────────┘
-                                         │ applies Helm chart
-                                         ▼
-                    ┌────────────────────────────────────────┐
-                    │                  EKS                    │
-                    │                                         │
-                    │  ┌─────────────────────────────────┐   │
-                    │  │        kite-dev namespace        │   │
-                    │  │                                  │   │
-                    │  │  Deployment (2+ pods)            │   │
-                    │  │    :8080  app traffic            │   │
-                    │  │    :9090  Prometheus metrics     │   │
-                    │  │        │                         │   │
-                    │  │     Service (ClusterIP)          │   │
-                    │  │        │                         │   │
-                    │  │   ALB Ingress (HTTPS/443)        │   │
-                    │  └─────────────────────────────────┘   │
-                    │                                         │
-                    │  Prometheus ──scrapes :9090──▶ Grafana  │
-                    └────────────────────────────────────────┘
+┌─────────────┐   push     ┌───────────────────────────────────────────────┐
+│  Developer  │───────────▶│           GitHub Actions (ci.yaml)             │
+└──────┬──────┘            │           go vet + go test -race               │
+       │                   └───────────────────────────────────────────────┘
+       │ make release VERSION=x.y.z
+       │  ├─ docker build into minikube daemon (no registry)
+       │  ├─ sed-patch image tag in values-{dev,staging,prod}.yaml
+       │  └─ git commit + git tag vX.Y.Z → push to GitHub
+       ▼
+┌──────────────────────────────────┐
+│              ArgoCD               │
+│  watches github.com/charliewyse/kite │
+│  dev:     auto-sync (selfHeal)    │
+│  staging: manual sync             │
+│  prod:    manual sync             │
+└──────────────┬───────────────────┘
+               │ applies Helm chart
+               ▼
+┌─────────────────────────────────────────────┐
+│                  minikube                    │
+│                                              │
+│  kite-dev / kite-staging / kite-prod         │
+│    Deployment → Service (ClusterIP)          │
+│      :8080  app    :9090  metrics            │
+│    nginx Ingress (*.local hostnames)         │
+│                                              │
+│  monitoring namespace                        │
+│    Prometheus ── scrapes :9090 ──▶ Grafana   │
+│    (kube-prometheus-stack, ArgoCD-managed)   │
+└─────────────────────────────────────────────┘
 ```
 
 ### Component inventory
@@ -50,8 +50,9 @@ GitOps, CI/CD, and observability on EKS.
 | Application | Go 1.22, distroless image | `app/` |
 | Packaging | Helm chart, per-env values | `helm/kite-service/` |
 | GitOps | ArgoCD App-of-Apps | `gitops/` |
-| CI/CD | GitHub Actions | `.github/workflows/` |
-| Observability | PrometheusRule + Grafana JSON | `observability/` |
+| CI | GitHub Actions (`ci.yaml` — test only) | `.github/workflows/` |
+| Release | `Makefile` — build + tag + push locally | `Makefile` |
+| Observability | kube-prometheus-stack + Grafana JSON | `observability/` |
 
 ---
 
@@ -77,9 +78,9 @@ kite/
 │   │   └── app-of-apps.yaml    # bootstrap — apply once
 │   └── apps/{dev,staging,prod}/kite-service.yaml
 │
+├── Makefile                    # build image, bump tags, push git tag (local release flow)
 ├── .github/workflows/
-│   ├── ci.yaml                 # test → go vet + go test (no registry push)
-│   └── cd.yaml                 # image tag bump (dev auto, staging/prod manual)
+│   └── ci.yaml                 # go vet + go test -race on every push/PR (tests only)
 │
 ├── observability/
 │   ├── alerts/kite-service-rules.yaml   # PrometheusRule (5 alerts + recording rules)
@@ -114,8 +115,9 @@ docker run --rm -p 8080:8080 -p 9090:9090 kite-service:local
 
 ### Local Kubernetes (minikube)
 
-`values-local.yaml` overrides the image to a locally built tag, switches ingress to nginx, and
-disables the ServiceMonitor (no Prometheus CRDs in a vanilla minikube).
+`values-local.yaml` contains only the overrides that don't work without cloud infrastructure
+(autoscaling limits, etc.). All three environment value files already use `pullPolicy: Never`
+and `className: nginx`, so the full ArgoCD flow works out of the box on minikube.
 
 ```bash
 # 1 — Build the image directly into minikube's Docker daemon (no registry needed)
@@ -184,16 +186,10 @@ kubectl port-forward svc/argocd-server -n argocd 8443:443 &
     argocd.argoproj.io/refresh=hard --overwrite
   ```
 
-- **`kite-service-dev` stays OutOfSync in minikube.** `values-dev.yaml` enables
-  the ServiceMonitor, which requires the `monitoring.coreos.com/ServiceMonitor`
-  CRD from kube-prometheus-stack. Without it, ArgoCD cannot apply the resource
-  and the app stays OutOfSync. The pods are healthy — this is an expected
-  limitation of simulating a cloud-native stack locally.
-
-- **Staging/prod show Progressing in minikube.** Their Ingress uses
-  `className: alb`, which requires the AWS Load Balancer Controller to assign an
-  external address. Without it the Ingress never becomes ready. All pods are
-  Running — this is also expected when running without cloud infrastructure.
+- **`kite-service-dev` may show OutOfSync if kube-prometheus-stack isn't deployed yet.**
+  The ServiceMonitor CRD is provided by `kube-prometheus-stack`. ArgoCD deploys it
+  automatically via the app-of-apps, but it can take a minute to come up on first boot.
+  Once the monitoring stack is Healthy the dev app will reconcile on its own.
 
 - **`kite-staging` and `kite-prod` namespaces must be created manually.**
   `CreateNamespace=true` requires cluster-admin RBAC that ArgoCD's default
@@ -243,19 +239,17 @@ This will:
 ArgoCD detects the values file change and auto-syncs dev within seconds.
 Staging and prod require a manual sync in the ArgoCD UI.
 
-CI (GitHub Actions) runs `go vet` and `go test` on every push to `main` and
+CI (GitHub Actions `ci.yaml`) runs `go vet` and `go test` on every push to `main` and
 every pull request — keeping the test gate in place even without a registry.
 
-To promote to staging or prod:
+To promote to staging or prod, sync manually after `make release` pushes the updated
+values files:
 
 ```bash
-# Via GitHub Actions UI (workflow_dispatch on cd.yaml)
-gh workflow run cd.yaml \
-  -f environment=staging \
-  -f image_tag=1.2.3
-
-# Then sync in ArgoCD UI, or:
+# ArgoCD UI — click Sync on kite-service-staging / kite-service-prod
+# or via CLI:
 argocd app sync kite-service-staging
+argocd app sync kite-service-prod
 ```
 
 ### Rollback strategy
@@ -375,42 +369,81 @@ cluster capacity is tight.
 
 ---
 
-## What I would improve with more time
+## Production path — what we'd do differently
 
-**Service mesh (Istio or Linkerd)**
-mTLS between pods, circuit breaking, retry budgets, and richer traffic metrics
-(per-route, per-upstream) without any app changes. Currently there is no
-encryption on pod-to-pod traffic inside the cluster.
+This project is a fully working proof of concept designed to run on **minikube without
+any cloud account**. Every piece of it is intentionally swappable. Here is what the
+production version of each layer would look like on AWS/EKS:
 
-**OpenTelemetry tracing**
-Wire `go.opentelemetry.io/otel` into the HTTP middleware so every request gets
-a trace ID propagated through all downstream calls. Ship to Tempo or Jaeger.
-Currently tracing is entirely absent.
+---
 
-**ArgoCD notifications**
-Connect the `notifications.argoproj.io` annotations in the Application manifests
-to a real Slack webhook so sync failures and successful deploys actually page
-someone. The annotations are stubbed but the notification controller is not
-installed.
+**Cluster: minikube → EKS**
 
-**Container registry**
-Images are currently built locally into minikube's daemon. In production this
-would be replaced with a private registry (ECR, Docker Hub, or similar) with
-separate repositories per environment so a dev image can never accidentally
-land in prod.
+Swap minikube for a real EKS cluster (eksctl, Terraform, or CDK). Node groups in
+multiple AZs, managed node upgrades, and a VPC with public/private subnets. Nothing
+in the application or Helm chart changes — only the `destination.server` in the
+ArgoCD Application manifests.
 
-**Pre-commit hooks**
-`golangci-lint` and `helm lint` run in CI but not locally. Adding
-`.pre-commit-config.yaml` gives developers the same checks before pushing.
+**Ingress: nginx → AWS Application Load Balancer**
 
-**Load testing baseline**
-No performance baseline exists. Adding a `k6` or `vegeta` script that runs in
-CI against a dev deployment would catch latency regressions before they reach
-staging.
+The current setup uses the nginx ingress controller, which works great locally but
+isn't cloud-aware. In production we'd install the
+[AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/)
+and switch the ingress class to `alb`. This gives native target-group health checks,
+WAF integration, and no extra hop through a NodePort. The Helm chart already has
+the ALB annotations in `values.yaml` — enabling them is a one-line change in the
+env values files.
+
+**TLS / SSL: manual → Cloudflare**
+
+Locally there is no TLS. In production we'd put Cloudflare in front of the ALB:
+
+- Cloudflare terminates HTTPS and proxies traffic to the ALB, providing a globally
+  distributed edge, DDoS protection, and a free managed SSL certificate with
+  automatic renewal — zero cert-manager config required.
+- The ALB→pod leg stays HTTP internally (traffic never leaves the AWS network).
+- An alternative is `cert-manager` + Let's Encrypt on the cluster, but Cloudflare
+  is simpler and adds the CDN and WAF layer for free.
+
+**IAM: none → IRSA (IAM Roles for Service Accounts)**
+
+In minikube there are no IAM permissions to worry about. On EKS every workload gets
+its own `ServiceAccount` with an annotated IAM role via IRSA (OIDC-based). This
+means the kite-service pod can read from Secrets Manager or write to S3 without
+sharing credentials with any other pod on the same node — the blast radius of a
+compromised pod is scoped to exactly that role's permissions.
+
+**Image registry: minikube daemon → Amazon ECR**
+
+Currently images are built directly into minikube's Docker daemon (`pullPolicy: Never`)
+which means no registry is needed, but images only live on your laptop. In production:
+- CI (GitHub Actions) builds and pushes to ECR on every merge to main
+- Each environment pulls from its own ECR repository tag
+- ECR image scanning runs on push; CRITICAL vulnerabilities block the pipeline
+
+**Secrets: none → AWS Secrets Manager + CSI driver**
+
+No real secrets exist in the PoC. In production, the AWS Secrets Store CSI driver
+mounts secrets from Secrets Manager directly into the pod as files — never as
+environment variables, never in manifests, never in git.
+
+---
+
+**What we'd polish with more time**
+
+- **Service mesh (Istio or Linkerd)** — mTLS between pods, circuit breaking, and
+  per-route traffic metrics without any app changes
+- **OpenTelemetry tracing** — wire `go.opentelemetry.io/otel` into the HTTP middleware,
+  ship to Tempo or Jaeger
+- **ArgoCD notifications** — connect the `notifications.argoproj.io` annotations to
+  a real Slack webhook so sync failures actually page someone
+- **Pre-commit hooks** — `golangci-lint` and `helm lint` locally, not just in CI
+- **Load testing baseline** — `k6` or `vegeta` in CI against dev to catch latency
+  regressions before they reach staging
 
 ---
 
 ## Debugging runbook
 
 See [`docs/debugging.md`](docs/debugging.md) for a structured 502/504 investigation
-guide specific to this stack (EKS + ALB Controller + `target-type: ip`).
+guide specific to this stack.
