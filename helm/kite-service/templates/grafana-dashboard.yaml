@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kite-service.fullname" . }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kite-service.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  kite-service-dashboard.json: |
+    {{- .Files.Get "files/kite-service-dashboard.json" | nindent 4 }}
+{{- end }}
