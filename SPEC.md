@@ -12,7 +12,7 @@ Prometheus/Grafana observability. The app is a lightweight Go HTTP service.
 | Concern | Choice | Reason |
 |---|---|---|
 | Language | Go | Small binary, tiny Docker image, excellent HTTP stdlib |
-| Container registry | Docker Hub | Public registry, no cloud account required; token-based auth via GitHub secrets |
+| Container registry | minikube daemon | No registry required locally; `pullPolicy: Never` uses the image built directly into minikube |
 | Package format | Helm | Templated values per environment; ArgoCD natively supports it |
 | GitOps engine | ArgoCD | App-of-Apps pattern, sync policies, drift detection |
 | Ingress | AWS ALB Ingress Controller | Native EKS integration, target-group health checks |
@@ -88,13 +88,13 @@ kite/
 push to main
   └─ ci.yaml
        ├── go test ./...
-       ├── docker build → login to Docker Hub → push (tags: 1.2.3, 1.2, 1)
-       └── trivy scan blocks on CRITICAL CVEs
+       └── go vet + go test -race (test gate only, no image build)
 
-  └─ cd.yaml (triggered after ci succeeds)
-       └── yq-patch values-dev.yaml image.tag → commit → push
-           ArgoCD auto-syncs dev (polling or webhook)
-           Manual promotion gate: staging → prod (ArgoCD sync wave or manual trigger)
+  └─ Makefile release target (run locally)
+       ├── docker build into minikube daemon (pullPolicy: Never, no registry)
+       ├── yq-patch values-{dev,staging,prod}.yaml image.tag → commit → push
+       └── git tag vX.Y.Z → push
+           ArgoCD auto-syncs dev; staging/prod require manual sync
 ```
 
 Rollback: revert the values commit — ArgoCD self-heals to the previous image tag.

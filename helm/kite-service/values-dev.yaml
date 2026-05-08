@@ -1,6 +1,7 @@
 image:
-  repository: "charliewyse/kite-service"
-  tag: "0.0.1"  # bumped by CD workflow on every semver tag
+  repository: "kite-service"
+  tag: "0.0.1"
+  pullPolicy: Never
 
 replicaCount: 1
 

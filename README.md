@@ -222,27 +222,29 @@ ArgoCD will discover and create `kite-service-dev`, `kite-service-staging`, and
 
 ### 2 — Configure GitHub
 
-Set these on the repository before pushing:
-
-| Key | Type | Value |
-|---|---|---|
-| `DOCKERHUB_USERNAME` | Secret | Docker Hub username |
-| `DOCKERHUB_TOKEN` | Secret | Docker Hub access token (not your password — generate one at hub.docker.com → Account Settings → Security) |
+No secrets required — images are built locally and never pushed to a registry.
 
 ### 3 — Deploy
 
-Push a semver tag to trigger a release:
+Images are built locally into minikube's Docker daemon — no registry required.
+The `Makefile` handles building, tagging values files, and pushing the git tag.
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+# Build and release version 1.2.3
+make release VERSION=1.2.3
 ```
 
-CI runs tests, builds the image, logs in to Docker Hub, pushes it tagged as
-`1.0.0` / `1.0` / `1`, then scans with Trivy. CD then bumps `values-dev.yaml`
-with the new version tag. ArgoCD auto-syncs dev within seconds.
+This will:
+1. Build `kite-service:1.2.3` directly into minikube's daemon (`pullPolicy: Never`)
+2. Bump the image tag to `1.2.3` in `values-dev.yaml`, `values-staging.yaml`, and `values-prod.yaml`
+3. Commit and push to `main`
+4. Create and push git tag `v1.2.3`
 
-Pushes to `main` (without a tag) run tests only — no image is built or pushed.
+ArgoCD detects the values file change and auto-syncs dev within seconds.
+Staging and prod require a manual sync in the ArgoCD UI.
+
+CI (GitHub Actions) runs `go vet` and `go test` on every push to `main` and
+every pull request — keeping the test gate in place even without a registry.
 
 To promote to staging or prod:
 
