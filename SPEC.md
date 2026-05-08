@@ -12,7 +12,7 @@ Prometheus/Grafana observability. The app is a lightweight Go HTTP service.
 | Concern | Choice | Reason |
 |---|---|---|
 | Language | Go | Small binary, tiny Docker image, excellent HTTP stdlib |
-| Container registry | ECR | Native IAM auth, no credential rotation needed |
+| Container registry | Docker Hub | Public registry, no cloud account required; token-based auth via GitHub secrets |
 | Package format | Helm | Templated values per environment; ArgoCD natively supports it |
 | GitOps engine | ArgoCD | App-of-Apps pattern, sync policies, drift detection |
 | Ingress | AWS ALB Ingress Controller | Native EKS integration, target-group health checks |
@@ -88,8 +88,8 @@ kite/
 push to main
   └─ ci.yaml
        ├── go test ./...
-       ├── docker build + push → ECR (tag: sha-<commit>, latest)
-       └── on tag v*.*.*: also push semver tag
+       ├── docker build → login to Docker Hub → push (tag: sha-<commit>, latest)
+       └── trivy scan blocks on CRITICAL CVEs
 
   └─ cd.yaml (triggered after ci succeeds)
        └── yq-patch values-dev.yaml image.tag → commit → push
@@ -97,7 +97,7 @@ push to main
            Manual promotion gate: staging → prod (ArgoCD sync wave or manual trigger)
 ```
 
-Rollback: re-tag ECR image or revert the values commit — ArgoCD self-heals to previous state.
+Rollback: revert the values commit — ArgoCD self-heals to the previous image tag.
 
 ---
 
@@ -149,7 +149,7 @@ One dashboard with four panels:
 | Secrets | AWS Secrets Manager + CSI driver; never in env vars or manifests |
 | RBAC | Dedicated `ServiceAccount` per service; minimal ClusterRole (no wildcards) |
 | Network | `NetworkPolicy` default-deny-all; explicit allow for ingress and metrics scrape |
-| Image | Distroless base; weekly Trivy scan in CI; ECR image scanning enabled |
+| Image | Distroless base; Trivy CRITICAL scan blocks CI on every push; Docker Hub vulnerability scanning enabled |
 | IAM | IRSA per workload; no instance-level IAM roles for pods |
 | Ingress | TLS termination at ALB; `force-ssl-redirect` annotation |
 | Supply chain | `go mod verify` in CI; pinned action versions (SHA) |

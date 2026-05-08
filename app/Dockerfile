@@ -10,7 +10,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o kite .
 
-# ---- final image ----
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /app/kite /kite
 

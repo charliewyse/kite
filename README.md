@@ -10,7 +10,7 @@ GitOps, CI/CD, and observability on EKS.
 ```
 ┌─────────────┐   push    ┌──────────────────────────────────────────────┐
 │  Developer  │──────────▶│              GitHub Actions                  │
-└─────────────┘           │  ci.yaml: test → build → ECR push → scan    │
+└─────────────┘           │  ci.yaml: test → build → Docker Hub push → scan │
                           │  cd.yaml: yq-patch values-dev.yaml → commit  │
                           └──────────────┬───────────────────────────────┘
                                          │ git commit (image tag bump)
@@ -78,7 +78,7 @@ kite/
 │   └── apps/{dev,staging,prod}/kite-service.yaml
 │
 ├── .github/workflows/
-│   ├── ci.yaml                 # test → build → ECR push → Trivy scan
+│   ├── ci.yaml                 # test → build → Docker Hub push → Trivy scan
 │   └── cd.yaml                 # image tag bump (dev auto, staging/prod manual)
 │
 ├── observability/
@@ -114,7 +114,7 @@ docker run --rm -p 8080:8080 -p 9090:9090 kite-service:local
 
 ### Local Kubernetes (minikube)
 
-`values-local.yaml` overrides the ECR image, switches ingress to nginx, and
+`values-local.yaml` overrides the image to a locally built tag, switches ingress to nginx, and
 disables the ServiceMonitor (no Prometheus CRDs in a vanilla minikube).
 
 ```bash
@@ -373,10 +373,11 @@ to a real Slack webhook so sync failures and successful deploys actually page
 someone. The annotations are stubbed but the notification controller is not
 installed.
 
-**Separate ECR repositories per environment**
-Currently the CD workflow pushes to a single repo and the tag is environment-
-specific. Proper environment isolation uses separate repos with cross-account
-pull permissions so a dev image can never accidentally land in prod.
+**Separate image repositories per environment**
+Currently all environments pull from the same Docker Hub image and the tag is
+environment-specific. Proper isolation would use separate repositories (or a
+private registry per environment) so a dev image can never accidentally land
+in prod.
 
 **Pre-commit hooks**
 `golangci-lint` and `helm lint` run in CI but not locally. Adding
