@@ -7,8 +7,10 @@ replicaCount: 2
 
 ingress:
   enabled: true
+  className: nginx
+  annotations: {}
   hosts:
-    - host: kite-staging.example.com
+    - host: kite-staging.local
       paths:
         - path: /
           pathType: Prefix

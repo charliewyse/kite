@@ -31,9 +31,9 @@ spec:
   syncPolicy:
     # Prod requires explicit human sync — no automation, no surprises.
     # Promotion flow:
-    #   1. CD workflow runs:  gh workflow run cd.yaml -f environment=prod -f image_tag=sha-abc1234
-    #   2. That commits the new tag to values-prod.yaml
-    #   3. Engineer reviews the diff in the ArgoCD UI and clicks Sync (or: argocd app sync kite-service-prod)
+    #   1. Run: make release VERSION=x.y.z  (bumps values-prod.yaml and pushes)
+    #   2. Engineer reviews the diff in the ArgoCD UI and clicks Sync
+    #      or: argocd app sync kite-service-prod
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
