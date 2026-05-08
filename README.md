@@ -70,21 +70,34 @@ kite/
 ├── helm/kite-service/
 │   ├── values.yaml             # production-safe defaults
 │   ├── values-{dev,staging,prod}.yaml
-│   └── templates/              # deployment, service, ingress, hpa, servicemonitor, …
+│   ├── files/
+│   │   └── kite-service-dashboard.json  # Grafana dashboard (auto-loaded via sidecar)
+│   └── templates/
+│       ├── deployment.yaml
+│       ├── service.yaml
+│       ├── ingress.yaml
+│       ├── hpa.yaml
+│       ├── configmap.yaml
+│       ├── serviceaccount.yaml
+│       ├── servicemonitor.yaml      # Prometheus scrape target
+│       ├── prometheusrule.yaml      # 5 alerts + recording rules (per environment)
+│       └── grafana-dashboard.yaml   # ConfigMap labelled grafana_dashboard=1 (auto-imported)
 │
 ├── gitops/
 │   ├── argocd/
 │   │   ├── appproject.yaml     # scopes deployments to kite namespaces only
 │   │   └── app-of-apps.yaml    # bootstrap — apply once
-│   └── apps/{dev,staging,prod}/kite-service.yaml
+│   └── apps/
+│       ├── {dev,staging,prod}/kite-service.yaml
+│       └── monitoring/kube-prometheus-stack.yaml
 │
 ├── Makefile                    # build image, bump tags, push git tag (local release flow)
 ├── .github/workflows/
 │   └── ci.yaml                 # go vet + go test -race on every push/PR (tests only)
 │
 ├── observability/
-│   ├── alerts/kite-service-rules.yaml   # PrometheusRule (5 alerts + recording rules)
-│   └── dashboards/kite-service.json     # Grafana dashboard (importable)
+│   ├── alerts/kite-service-rules.yaml   # reference copy of PrometheusRule
+│   └── dashboards/kite-service.json     # reference copy of Grafana dashboard
 │
 ├── docs/debugging.md           # 502/504 runbook
 └── SPEC.md                     # architecture decisions and rationale
@@ -287,25 +300,13 @@ The `maxUnavailable: 0` rolling update policy means the previous ReplicaSet is k
 
 ### 4 — Observability
 
-Prometheus and Grafana are managed by ArgoCD via the app-of-apps — no manual
-install needed. ArgoCD deploys `kube-prometheus-stack` into the `monitoring`
-namespace automatically when the stack syncs.
+Prometheus, Grafana, and the kite alerts are all managed by ArgoCD — no manual steps needed.
 
-Once Grafana is running, import the kite dashboard:
+- **kube-prometheus-stack** is deployed by ArgoCD into the `monitoring` namespace via the app-of-apps
+- **Grafana dashboard** is a ConfigMap in the Helm chart labelled `grafana_dashboard: "1"` — Grafana's sidecar detects it and loads it automatically on startup
+- **PrometheusRule** (5 alerts + recording rules) is a Helm template deployed alongside each environment — Prometheus picks it up automatically via `ruleSelectorNilUsesHelmValues: false`
 
-```bash
-# Port-forward Grafana
-kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3000:80
-
-# Import via the API (default credentials: admin / admin)
-curl -X POST http://admin:admin@localhost:3000/api/dashboards/import \
-  -H "Content-Type: application/json" \
-  -d "{\"dashboard\": $(cat observability/dashboards/kite-service.json), \"overwrite\": true, \"folderId\": 0}"
-```
-
-The PrometheusRule is applied by ArgoCD as part of each environment's Helm
-release (`serviceMonitor.enabled: true` in the env values files).
-Access Grafana at `http://localhost:3000` while the port-forward is running.
+Access Grafana and Prometheus using the port-forwards and URLs in the [Accessing everything locally](#accessing-everything-locally) section above.
 
 ---
 

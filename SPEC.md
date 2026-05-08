@@ -29,6 +29,7 @@ layer maps to a real EKS deployment.
 kite/
 ├── SPEC.md                        # this file
 ├── README.md                      # public-facing docs
+├── Makefile                       # local release: build → tag values → git tag → push
 │
 ├── app/                           # application source
 │   ├── Dockerfile
@@ -46,6 +47,8 @@ kite/
 │       ├── values-dev.yaml
 │       ├── values-staging.yaml
 │       ├── values-prod.yaml
+│       ├── files/
+│       │   └── kite-service-dashboard.json   # Grafana dashboard (embedded in ConfigMap)
 │       └── templates/
 │           ├── _helpers.tpl
 │           ├── deployment.yaml
@@ -54,27 +57,26 @@ kite/
 │           ├── hpa.yaml
 │           ├── serviceaccount.yaml
 │           ├── configmap.yaml
-│           └── servicemonitor.yaml   # Prometheus scrape target
+│           ├── servicemonitor.yaml      # Prometheus scrape target
+│           ├── prometheusrule.yaml      # 5 alerts + recording rules
+│           └── grafana-dashboard.yaml   # ConfigMap auto-loaded by Grafana sidecar
 │
 ├── gitops/
 │   ├── argocd/
+│   │   ├── appproject.yaml          # scopes deployments to kite namespaces
 │   │   └── app-of-apps.yaml         # root ArgoCD Application
 │   └── apps/
-│       ├── dev/
-│       │   └── kite-service.yaml
-│       ├── staging/
-│       │   └── kite-service.yaml
-│       └── prod/
-│           └── kite-service.yaml
+│       ├── dev/kite-service.yaml
+│       ├── staging/kite-service.yaml
+│       ├── prod/kite-service.yaml
+│       └── monitoring/kube-prometheus-stack.yaml
 │
 ├── observability/
-│   ├── dashboards/
-│   │   └── kite-service.json        # Grafana dashboard definition
-│   └── alerts/
-│       └── kite-service-rules.yaml  # PrometheusRule
+│   ├── dashboards/kite-service.json     # reference copy of Grafana dashboard
+│   └── alerts/kite-service-rules.yaml   # reference copy of PrometheusRule
 │
 ├── docs/
-│   └── debugging.md                 # Part 5 — 502/504 debugging walkthrough
+│   └── debugging.md                 # 502/504 debugging walkthrough
 │
 └── .github/
     └── workflows/
@@ -123,23 +125,35 @@ Rollback: revert the values commit — ArgoCD self-heals to the previous image t
 - ServiceMonitor in `helm/templates/servicemonitor.yaml` picked up by kube-prometheus-stack
 
 ### Dashboard (Grafana)
-One dashboard with four panels:
+Defined in `helm/kite-service/files/kite-service-dashboard.json` and packaged as a
+ConfigMap labelled `grafana_dashboard: "1"` by `templates/grafana-dashboard.yaml`.
+Grafana's sidecar detects the label and loads it automatically — no manual import needed.
+
+Four panels:
 1. RPS (requests/sec) by status code
 2. p50 / p95 / p99 latency
 3. Error rate (5xx / total)
 4. Pod restarts
 
-### Alert (PrometheusRule)
-```yaml
-- alert: KiteHighErrorRate
-  expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
-  for: 2m
-  severity: warning
+### Alerts (PrometheusRule)
+Deployed via `templates/prometheusrule.yaml` into each environment namespace.
+`ruleSelectorNilUsesHelmValues: false` in kube-prometheus-stack lets Prometheus
+pick up rules from any namespace without requiring the `release` label.
 
-- alert: KiteHighLatency
-  expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
-  for: 5m
-  severity: warning
+Recording rules pre-compute expensive aggregations; alerts query the recordings:
+
+```yaml
+# Recording rules (scoped to release namespace)
+kite:http_requests:rate5m
+kite:http_requests:error_rate5m
+kite:http_request_duration_seconds:p50 / p95 / p99
+
+# Alerts
+- KiteHighErrorRate       — error rate > 5% for 2m   (warning)
+- KiteHighLatencyP95      — p95 > 1s for 5m           (warning)
+- KiteHighLatencyP99      — p99 > 2s for 5m           (critical)
+- KitePodCrashLooping     — >1 restart/min for 5m     (critical)
+- KiteDeploymentUnavailable — any unavailable replica for 5m (critical)
 ```
 
 ---
