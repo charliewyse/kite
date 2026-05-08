@@ -286,18 +286,27 @@ The `maxUnavailable: 0` rolling update policy means the previous ReplicaSet is k
 
 ---
 
-### 4 — Import observability
+### 4 — Observability
+
+Prometheus and Grafana are managed by ArgoCD via the app-of-apps — no manual
+install needed. ArgoCD deploys `kube-prometheus-stack` into the `monitoring`
+namespace automatically when the stack syncs.
+
+Once Grafana is running, import the kite dashboard:
 
 ```bash
-# PrometheusRule
-kubectl apply -n monitoring -f observability/alerts/kite-service-rules.yaml
+# Port-forward Grafana
+kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3000:80
 
-# Grafana dashboard: import observability/dashboards/kite-service.json
-# via Grafana UI → Dashboards → Import, or via the Grafana API:
-curl -X POST http://grafana/api/dashboards/import \
+# Import via the API (default credentials: admin / admin)
+curl -X POST http://admin:admin@localhost:3000/api/dashboards/import \
   -H "Content-Type: application/json" \
-  -d "{\"dashboard\": $(cat observability/dashboards/kite-service.json), \"overwrite\": true}"
+  -d "{\"dashboard\": $(cat observability/dashboards/kite-service.json), \"overwrite\": true, \"folderId\": 0}"
 ```
+
+The PrometheusRule is applied by ArgoCD as part of each environment's Helm
+release (`serviceMonitor.enabled: true` in the env values files).
+Access Grafana at `http://localhost:3000` while the port-forward is running.
 
 ---
 

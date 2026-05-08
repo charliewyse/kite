@@ -1,0 +1,58 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: kite
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "*"  # pin to a specific chart version in production
+    helm:
+      releaseName: kube-prometheus-stack
+      values: |
+        alertmanager:
+          enabled: false
+
+        prometheus:
+          prometheusSpec:
+            # Scrape ServiceMonitors from all namespaces, not just the release namespace
+            serviceMonitorSelectorNilUsesHelmValues: false
+
+        grafana:
+          adminPassword: admin
+          service:
+            type: ClusterIP
+          # Auto-load dashboards from ConfigMaps labelled grafana_dashboard: "1"
+          sidecar:
+            dashboards:
+              enabled: true
+              searchNamespace: ALL
+
+        kubeStateMetrics:
+          enabled: true
+
+        nodeExporter:
+          enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

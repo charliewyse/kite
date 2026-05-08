@@ -10,11 +10,12 @@ metadata:
 spec:
   description: Kite microservice — all environments
 
-  # Only allow deployments sourced from this repository
+  # Only allow deployments sourced from these repositories
   sourceRepos:
     - https://github.com/charliewyse/kite
+    - https://prometheus-community.github.io/helm-charts
 
-  # Only allow deployments into the three kite namespaces
+  # Only allow deployments into these namespaces
   destinations:
     - server: https://kubernetes.default.svc
       namespace: kite-dev
@@ -22,14 +23,27 @@ spec:
       namespace: kite-staging
     - server: https://kubernetes.default.svc
       namespace: kite-prod
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
     # argocd namespace is needed so the app-of-apps can manage Application CRs
     - server: https://kubernetes.default.svc
       namespace: argocd
 
-  # Cluster-scoped resources this project is allowed to create
+  # Cluster-scoped resources this project is allowed to create.
+  # kube-prometheus-stack installs CRDs, ClusterRoles, and webhook configs.
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+    - group: "apiextensions.k8s.io"
+      kind: CustomResourceDefinition
+    - group: "admissionregistration.k8s.io"
+      kind: MutatingWebhookConfiguration
+    - group: "admissionregistration.k8s.io"
+      kind: ValidatingWebhookConfiguration
 
   # All namespace-scoped resource kinds are permitted within the destinations above
   namespaceResourceWhitelist:
